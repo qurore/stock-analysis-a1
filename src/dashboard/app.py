@@ -18,8 +18,10 @@ import sys
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from sklearn.linear_model import LinearRegression
-from sklearn.ensemble import RandomForestRegressor
+from sklearn.preprocessing import MinMaxScaler
 from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
+import joblib
+import tensorflow as tf
 
 # Page configuration
 st.set_page_config(
@@ -29,26 +31,47 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Custom CSS
+# Custom CSS - Dark Theme
 st.markdown("""
 <style>
     .main-header {
         font-size: 2.5rem;
         font-weight: bold;
-        color: #1f77b4;
+        color: #4da6ff;
         text-align: center;
         margin-bottom: 2rem;
     }
     .metric-card {
-        background-color: #f0f2f6;
+        background-color: #1e1e1e;
         border-radius: 10px;
         padding: 1rem;
         text-align: center;
     }
-    .stMetric {
-        background-color: #f8f9fa;
-        padding: 10px;
-        border-radius: 5px;
+    [data-testid="stMetric"] {
+        background-color: #262730;
+        padding: 15px;
+        border-radius: 10px;
+        border: 1px solid #3d3d3d;
+        min-height: 140px;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+    }
+    [data-testid="stMetricLabel"] {
+        color: #fafafa;
+    }
+    [data-testid="stMetricValue"] {
+        color: #ffffff;
+    }
+    [data-testid="stHorizontalBlock"] > div {
+        flex: 1;
+        min-width: 0;
+    }
+    .stApp {
+        background-color: #0e1117;
+    }
+    .stSidebar {
+        background-color: #1e1e1e;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -126,58 +149,87 @@ def add_technical_indicators(df: pd.DataFrame) -> pd.DataFrame:
 
 
 @st.cache_resource
+def load_trained_models():
+    """Load pre-trained models from Part 2."""
+    models_dir = Path(__file__).parent.parent / 'models'
+    
+    # Load Linear Regression
+    lr_model = joblib.load(models_dir / 'linear_regression.joblib')
+    
+    # Load LSTM model and scalers
+    lstm_model = tf.keras.models.load_model(models_dir / 'lstm_model.keras')
+    scaler_X = joblib.load(models_dir / 'scaler_X.joblib')
+    scaler_y = joblib.load(models_dir / 'scaler_y.joblib')
+    
+    # Load feature columns
+    with open(models_dir / 'feature_columns.txt', 'r') as f:
+        feature_cols = f.read().strip().split('\n')
+    
+    return {
+        'lr_model': lr_model,
+        'lstm_model': lstm_model,
+        'scaler_X': scaler_X,
+        'scaler_y': scaler_y,
+        'feature_cols': feature_cols
+    }
+
+
+@st.cache_resource
 def train_models(df: pd.DataFrame):
-    """Train both prediction models."""
-    feature_cols = ['open', 'high', 'low', 'close', 'volume',
-                    'sma_20', 'sma_50', 'rsi_14', 'volatility', 'price_momentum']
-
-    # Prepare data
+    """Calculate metrics for both models."""
+    # Try to load pre-trained models first
+    try:
+        models = load_trained_models()
+        feature_cols = models['feature_cols']
+    except Exception as e:
+        st.warning(f"Could not load pre-trained models: {e}. Training new models...")
+        feature_cols = ['open', 'high', 'low', 'close', 'volume',
+                        'sma_20', 'sma_50', 'rsi_14', 'volatility', 'price_momentum']
+        models = {'feature_cols': feature_cols}
+    
+    # Prepare data for metrics calculation
     model_df = df.dropna(subset=feature_cols + ['next_close']).copy()
-
     X = model_df[feature_cols]
     y = model_df['next_close']
-
+    
     # 80-20 split
     split_idx = int(len(X) * 0.8)
     X_train, X_test = X.iloc[:split_idx], X.iloc[split_idx:]
     y_train, y_test = y.iloc[:split_idx], y.iloc[split_idx:]
-
-    # Train Linear Regression
-    lr_model = LinearRegression()
-    lr_model.fit(X_train, y_train)
-    lr_pred = lr_model.predict(X_test)
-
+    
+    # Linear Regression
+    if 'lr_model' not in models:
+        lr_model = LinearRegression()
+        lr_model.fit(X_train, y_train)
+        models['lr_model'] = lr_model
+    
+    lr_pred = models['lr_model'].predict(X_test)
     lr_metrics = {
         'rmse': np.sqrt(mean_squared_error(y_test, lr_pred)),
         'mae': mean_absolute_error(y_test, lr_pred),
         'r2': r2_score(y_test, lr_pred)
     }
-
-    # Train Random Forest
-    rf_model = RandomForestRegressor(
-        n_estimators=100,
-        max_depth=10,
-        min_samples_split=10,
-        random_state=42,
-        n_jobs=-1
-    )
-    rf_model.fit(X_train, y_train)
-    rf_pred = rf_model.predict(X_test)
-
-    rf_metrics = {
-        'rmse': np.sqrt(mean_squared_error(y_test, rf_pred)),
-        'mae': mean_absolute_error(y_test, rf_pred),
-        'r2': r2_score(y_test, rf_pred)
-    }
-
-    return {
-        'lr_model': lr_model,
-        'rf_model': rf_model,
-        'lr_metrics': lr_metrics,
-        'rf_metrics': rf_metrics,
-        'feature_cols': feature_cols,
-        'test_idx': model_df.index[split_idx:]
-    }
+    
+    # LSTM predictions
+    if 'lstm_model' in models:
+        X_test_scaled = models['scaler_X'].transform(X_test)
+        X_test_lstm = X_test_scaled.reshape((X_test_scaled.shape[0], 1, X_test_scaled.shape[1]))
+        lstm_pred_scaled = models['lstm_model'].predict(X_test_lstm, verbose=0)
+        lstm_pred = models['scaler_y'].inverse_transform(lstm_pred_scaled).flatten()
+        
+        lstm_metrics = {
+            'rmse': np.sqrt(mean_squared_error(y_test, lstm_pred)),
+            'mae': mean_absolute_error(y_test, lstm_pred),
+            'r2': r2_score(y_test, lstm_pred)
+        }
+    else:
+        lstm_metrics = {'rmse': 0, 'mae': 0, 'r2': 0}
+    
+    models['lr_metrics'] = lr_metrics
+    models['lstm_metrics'] = lstm_metrics
+    models['test_idx'] = model_df.index[split_idx:]
+    
+    return models
 
 
 def predict_for_stock(df: pd.DataFrame, ticker: str, models: dict) -> pd.DataFrame:
@@ -192,8 +244,17 @@ def predict_for_stock(df: pd.DataFrame, ticker: str, models: dict) -> pd.DataFra
 
     X = valid_df[feature_cols]
 
+    # Linear Regression prediction
     valid_df['lr_prediction'] = models['lr_model'].predict(X)
-    valid_df['rf_prediction'] = models['rf_model'].predict(X)
+    
+    # LSTM prediction
+    if 'lstm_model' in models:
+        X_scaled = models['scaler_X'].transform(X)
+        X_lstm = X_scaled.reshape((X_scaled.shape[0], 1, X_scaled.shape[1]))
+        lstm_pred_scaled = models['lstm_model'].predict(X_lstm, verbose=0)
+        valid_df['lstm_prediction'] = models['scaler_y'].inverse_transform(lstm_pred_scaled).flatten()
+    else:
+        valid_df['lstm_prediction'] = valid_df['lr_prediction']
 
     return valid_df
 
@@ -233,8 +294,8 @@ def create_price_chart(df: pd.DataFrame, ticker: str):
 
     fig.add_trace(
         go.Scatter(
-            x=df['date'], y=df['rf_prediction'],
-            name='Random Forest',
+            x=df['date'], y=df['lstm_prediction'],
+            name='LSTM',
             line=dict(color='#2ca02c', width=1.5, dash='dot')
         ),
         row=1, col=1
@@ -316,7 +377,7 @@ def create_prediction_comparison(df: pd.DataFrame):
 
     fig = make_subplots(
         rows=1, cols=2,
-        subplot_titles=('Linear Regression', 'Random Forest')
+        subplot_titles=('Linear Regression', 'LSTM')
     )
 
     # Linear Regression
@@ -331,21 +392,21 @@ def create_prediction_comparison(df: pd.DataFrame):
         row=1, col=1
     )
 
-    # Random Forest
+    # LSTM
     fig.add_trace(
         go.Scatter(
             x=sample_df['next_close'],
-            y=sample_df['rf_prediction'],
+            y=sample_df['lstm_prediction'],
             mode='markers',
             marker=dict(size=4, opacity=0.5, color='#2ca02c'),
-            name='RF Predictions'
+            name='LSTM Predictions'
         ),
         row=1, col=2
     )
 
     # Perfect prediction line
-    min_val = sample_df[['next_close', 'lr_prediction', 'rf_prediction']].min().min()
-    max_val = sample_df[['next_close', 'lr_prediction', 'rf_prediction']].max().max()
+    min_val = sample_df[['next_close', 'lr_prediction', 'lstm_prediction']].min().min()
+    max_val = sample_df[['next_close', 'lr_prediction', 'lstm_prediction']].max().max()
 
     fig.add_trace(
         go.Scatter(
@@ -442,10 +503,10 @@ def main():
     st.sidebar.text(f"RMSE: ${models['lr_metrics']['rmse']:.2f}")
     st.sidebar.text(f"MAE: ${models['lr_metrics']['mae']:.2f}")
 
-    st.sidebar.markdown("**Random Forest**")
-    st.sidebar.text(f"R²: {models['rf_metrics']['r2']:.4f}")
-    st.sidebar.text(f"RMSE: ${models['rf_metrics']['rmse']:.2f}")
-    st.sidebar.text(f"MAE: ${models['rf_metrics']['mae']:.2f}")
+    st.sidebar.markdown("**LSTM**")
+    st.sidebar.text(f"R²: {models['lstm_metrics']['r2']:.4f}")
+    st.sidebar.text(f"RMSE: ${models['lstm_metrics']['rmse']:.2f}")
+    st.sidebar.text(f"MAE: ${models['lstm_metrics']['mae']:.2f}")
 
     # Main content
     # Get predictions for selected stock
@@ -482,9 +543,9 @@ def main():
 
     with col3:
         st.metric(
-            label="RF Prediction",
-            value=f"${latest['rf_prediction']:.2f}",
-            delta=f"{((latest['rf_prediction'] / latest['close']) - 1) * 100:.2f}%"
+            label="LSTM Prediction",
+            value=f"${latest['lstm_prediction']:.2f}",
+            delta=f"{((latest['lstm_prediction'] / latest['close']) - 1) * 100:.2f}%"
         )
 
     with col4:
@@ -512,7 +573,7 @@ def main():
 
     if len(accuracy_df) > 0:
         lr_error = accuracy_df['next_close'] - accuracy_df['lr_prediction']
-        rf_error = accuracy_df['next_close'] - accuracy_df['rf_prediction']
+        lstm_error = accuracy_df['next_close'] - accuracy_df['lstm_prediction']
 
         col1, col2 = st.columns(2)
 
@@ -527,14 +588,14 @@ def main():
             st.plotly_chart(fig_lr, use_container_width=True)
 
         with col2:
-            st.markdown("**Random Forest Error Distribution**")
-            fig_rf = px.histogram(
-                rf_error,
+            st.markdown("**LSTM Error Distribution**")
+            fig_lstm = px.histogram(
+                lstm_error,
                 nbins=50,
                 title="Prediction Error (Actual - Predicted)"
             )
-            fig_rf.update_layout(showlegend=False, height=300)
-            st.plotly_chart(fig_rf, use_container_width=True)
+            fig_lstm.update_layout(showlegend=False, height=300)
+            st.plotly_chart(fig_lstm, use_container_width=True)
 
     # Comparison scatter plot
     st.subheader("Actual vs Predicted Prices (All Stocks)")
@@ -542,7 +603,14 @@ def main():
     all_pred_df = all_pred_df.dropna(subset=models['feature_cols'] + ['next_close'])
     X_all = all_pred_df[models['feature_cols']]
     all_pred_df['lr_prediction'] = models['lr_model'].predict(X_all)
-    all_pred_df['rf_prediction'] = models['rf_model'].predict(X_all)
+    if 'lstm_model' in models:
+        X_all_scaled = models['scaler_X'].transform(X_all)
+        X_all_lstm = X_all_scaled.reshape((X_all_scaled.shape[0], 1, X_all_scaled.shape[1]))
+        all_pred_df['lstm_prediction'] = models['scaler_y'].inverse_transform(
+            models['lstm_model'].predict(X_all_lstm, verbose=0)
+        ).flatten()
+    else:
+        all_pred_df['lstm_prediction'] = all_pred_df['lr_prediction']
 
     comparison_chart = create_prediction_comparison(all_pred_df)
     st.plotly_chart(comparison_chart, use_container_width=True)
@@ -550,7 +618,7 @@ def main():
     # Data table
     st.subheader("Recent Data")
     display_cols = ['date', 'open', 'high', 'low', 'close', 'volume',
-                    'sma_20', 'rsi_14', 'lr_prediction', 'rf_prediction']
+                    'sma_20', 'rsi_14', 'lr_prediction', 'lstm_prediction']
     st.dataframe(
         pred_df[display_cols].tail(20).round(2),
         use_container_width=True
@@ -567,7 +635,7 @@ def main():
 
         **Models:**
         - **Linear Regression**: Baseline model using all features
-        - **Random Forest**: Ensemble method with 100 trees, max depth 10
+        - **LSTM**: Deep learning model for time-series prediction (2 LSTM layers + Dense layers)
         """
     )
 
