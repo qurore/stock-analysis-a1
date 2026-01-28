@@ -36,7 +36,7 @@ st.set_page_config(
     page_title="Stock Price Prediction Dashboard",
     page_icon="📈",
     layout="wide",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="collapsed"
 )
 
 # Custom CSS - Dark Theme
@@ -77,9 +77,6 @@ st.markdown("""
     }
     .stApp {
         background-color: #0e1117;
-    }
-    .stSidebar {
-        background-color: #1e1e1e;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -512,55 +509,72 @@ def main():
         raw_df = load_data()
         df = add_technical_indicators(raw_df)
 
-    # Sidebar
-    st.sidebar.header("Stock Selection")
-
     # Get unique tickers
     tickers = sorted(df['name'].unique())
 
-    # Search functionality
-    search = st.sidebar.text_input("Search Ticker", "").upper()
+    # Controls at the top (no sidebar)
+    col_search, col_ticker, col_date = st.columns(3)
+
+    with col_search:
+        search = st.text_input("Search Ticker", "").upper()
+
     if search:
         filtered_tickers = [t for t in tickers if search in t]
     else:
         filtered_tickers = tickers
 
-    selected_ticker = st.sidebar.selectbox(
-        "Select Company",
-        filtered_tickers,
-        index=filtered_tickers.index('AAPL') if 'AAPL' in filtered_tickers else 0
-    )
+    # Handle case when no tickers match the search
+    if not filtered_tickers:
+        with col_ticker:
+            st.selectbox("Select Ticker Code", ["No matches found"], disabled=True)
+        st.warning(f"No ticker found matching '{search}'. Please try a different search term.")
+        st.stop()
+
+    with col_ticker:
+        selected_ticker = st.selectbox(
+            "Select Ticker Code",
+            filtered_tickers,
+            index=filtered_tickers.index('AAPL') if 'AAPL' in filtered_tickers else 0
+        )
 
     # Date range filter
-    st.sidebar.subheader("Date Range")
     min_date = df['date'].min().date()
     max_date = df['date'].max().date()
 
-    date_range = st.sidebar.date_input(
-        "Select Range",
-        value=(min_date, max_date),
-        min_value=min_date,
-        max_value=max_date
-    )
+    with col_date:
+        date_range = st.date_input(
+            "Date Range",
+            value=(min_date, max_date),
+            min_value=min_date,
+            max_value=max_date
+        )
 
     if len(date_range) == 2:
         start_date, end_date = date_range
     else:
         start_date, end_date = min_date, max_date
 
-    # Model metrics section
-    st.sidebar.markdown("---")
-    st.sidebar.subheader("Model Performance")
+    # Model Performance section
+    st.markdown("---")
+    st.subheader("Model Performance")
 
-    st.sidebar.markdown("**Linear Regression**")
-    st.sidebar.text(f"R²: {models['lr_metrics']['r2']:.4f}")
-    st.sidebar.text(f"RMSE: ${models['lr_metrics']['rmse']:.2f}")
-    st.sidebar.text(f"MAE: ${models['lr_metrics']['mae']:.2f}")
+    perf_col1, perf_col2 = st.columns(2)
 
-    st.sidebar.markdown("**LSTM**")
-    st.sidebar.text(f"R²: {models['lstm_metrics']['r2']:.4f}")
-    st.sidebar.text(f"RMSE: ${models['lstm_metrics']['rmse']:.2f}")
-    st.sidebar.text(f"MAE: ${models['lstm_metrics']['mae']:.2f}")
+    with perf_col1:
+        st.markdown("**Linear Regression**")
+        lr_m1, lr_m2, lr_m3 = st.columns(3)
+        lr_m1.metric("R²", f"{models['lr_metrics']['r2']:.4f}")
+        lr_m2.metric("RMSE", f"${models['lr_metrics']['rmse']:.2f}")
+        lr_m3.metric("MAE", f"${models['lr_metrics']['mae']:.2f}")
+
+    with perf_col2:
+        st.markdown("**LSTM**")
+        lstm_m1, lstm_m2, lstm_m3 = st.columns(3)
+        lstm_m1.metric("R²", f"{models['lstm_metrics']['r2']:.4f}")
+        lstm_m2.metric("RMSE", f"${models['lstm_metrics']['rmse']:.2f}")
+        lstm_m3.metric("MAE", f"${models['lstm_metrics']['mae']:.2f}")
+
+    st.markdown("---")
 
     # Main content
     # Get predictions for selected stock

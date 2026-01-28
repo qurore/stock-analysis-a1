@@ -27,9 +27,9 @@ This project analyzes 5 years of daily stock prices for 505 S&P 500 companies (6
 
 ## Setup Instructions
 
-### 1. Clone the repository
+### 1. Extract the zip file
 ```bash
-git clone <repository-url>
+unzip stock-analysis-a1.zip
 cd stock-analysis-a1
 ```
 
@@ -68,49 +68,47 @@ Evaluate whether to keep data in CSV format or convert to Parquet format for sto
 - Benchmark read/write performance at **1x, 10x, and 100x** data scales
 - Compare formats: CSV, Parquet (No compression), Parquet (Snappy), Parquet (GZIP), Parquet (Brotli)
 - Measure: write time, read time, and file size
-
-### Library Choice: PyArrow
-**Why PyArrow?**
-- Native support for Parquet format with multiple compression codecs
-- High-performance columnar memory format
-- Excellent integration with Pandas
-- Industry standard for big data processing
+- Each benchmark is averaged over **5 runs** for statistical reliability
 
 ### Results Summary
 
 | Scale | Format | Write Time | Read Time | File Size |
 |-------|--------|------------|-----------|-----------|
-| 1x | CSV | 1.109s | 0.166s | 28.21 MB |
-| 1x | Parquet (Snappy) | 0.102s | 0.021s | 10.03 MB |
-| 10x | CSV | 11.359s | 1.646s | 298.04 MB |
-| 10x | Parquet (Snappy) | 1.019s | 0.156s | 94.93 MB |
-| 100x | CSV | 118.362s | 16.901s | 3049.49 MB |
-| 100x | Parquet (Snappy) | 10.242s | 1.508s | 948.05 MB |
+| 1x | CSV | 1.060s | 0.183s | 28.21 MB |
+| 1x | Parquet (Snappy) | 0.106s | 0.022s | 10.03 MB |
+| 10x | CSV | 10.844s | 1.661s | 298.04 MB |
+| 10x | Parquet (Snappy) | 1.011s | 0.155s | 94.93 MB |
+| 100x | CSV | 108.503s | 16.701s | 3049.49 MB |
+| 100x | Parquet (Snappy) | 10.373s | 1.468s | 948.05 MB |
+
+![Part 1 Performance Comparison](images/part1_performance_compariosn.png)
 
 ### Analysis & Recommendations
 
 **Key Findings:**
 1. **Read Performance**: Parquet consistently outperforms CSV
-   - 1x scale: 8x faster
-   - 10x scale: 10x faster
-   - 100x scale: 11x faster
+   - 1x scale: 8.4x faster
+   - 10x scale: 10.7x faster
+   - 100x scale: 11.4x faster
 
-2. **Write Performance**: Parquet (Snappy) is 10-12x faster than CSV
+2. **Write Performance**: Parquet (Snappy) is 10-11x faster than CSV
 
-3. **Storage Efficiency**: Parquet reduces file size by 65-70%
+3. **Storage Efficiency**: Parquet (Snappy) reduces file size to 32-36% of CSV
 
-**Compression Comparison:**
-| Compression | Speed | Compression Ratio | Best Use Case |
-|-------------|-------|-------------------|---------------|
-| Snappy | Fastest | Good (65%) | **General purpose - Recommended** |
-| GZIP | Slow | Better (74%) | Cold storage, archival |
-| Brotli | Moderate | Best (75%) | When size is critical |
+**Compression Comparison (at 1x scale):**
+| Compression | Write Speed | Read Speed | File Size | Best Use Case |
+|-------------|-------------|------------|-----------|---------------|
+| Snappy | 10x faster | 8x faster | 36% of CSV | **General purpose - Recommended** |
+| GZIP | 3.6x slower | 7x faster | 29% of CSV | Cold storage, archival |
+| Brotli | 1.5x faster | 6x faster | 28% of CSV | When size is critical |
 
 **Final Recommendation**: **Parquet with Snappy compression** for all scales
 - Best balance of read/write speed and compression
-- Significant storage savings
+- File size reduced to ~1/3 of CSV
 - Type preservation (no parsing errors)
 - Better scalability for future data growth
+
+> **Note**: GZIP offers better compression but has significantly slower write performance (even slower than CSV). Use only for infrequently updated archival data.
 
 ---
 
@@ -222,7 +220,6 @@ Evaluate whether to keep data in CSV format or convert to Parquet format for sto
 
 2. **Model Performance Metrics**
    - R², RMSE, MAE for both models
-   - Displayed in sidebar
 
 3. **Interactive Charts**
    - Price chart with predictions overlay
@@ -246,7 +243,7 @@ Access at: http://localhost:8501
 
 ```
 stock-analysis-a1/
-├── data/                           # Data files (not tracked in git)
+├── data/                           # Data files
 │   └── all_stocks_5yr.csv
 ├── notebooks/
 │   ├── part1_storage_benchmarking.ipynb   # Storage format benchmarks
