@@ -13,6 +13,7 @@ import plotly.express as px
 from plotly.subplots import make_subplots
 from pathlib import Path
 import sys
+import json
 
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
@@ -21,7 +22,14 @@ from sklearn.linear_model import LinearRegression
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
 import joblib
-import tensorflow as tf
+
+# Try to import TensorFlow (may not be available on Python 3.13)
+TF_AVAILABLE = False
+try:
+    import tensorflow as tf
+    TF_AVAILABLE = True
+except ImportError:
+    pass
 
 # Page configuration
 st.set_page_config(
@@ -149,43 +157,72 @@ def add_technical_indicators(df: pd.DataFrame) -> pd.DataFrame:
 
 
 @st.cache_resource
-def load_trained_models():
+def load_trained_models(load_lstm: bool = True):
     """Load pre-trained models from Part 2."""
     models_dir = Path(__file__).parent.parent / 'models'
     
-    # Load Linear Regression
-    lr_model = joblib.load(models_dir / 'linear_regression.joblib')
+    result = {}
     
-    # Load LSTM model and scalers
-    lstm_model = tf.keras.models.load_model(models_dir / 'lstm_model.keras')
-    scaler_X = joblib.load(models_dir / 'scaler_X.joblib')
-    scaler_y = joblib.load(models_dir / 'scaler_y.joblib')
+    # Load feature columns first
+    try:
+        with open(models_dir / 'feature_columns.txt', 'r') as f:
+            feature_cols = f.read().strip().split('\n')
+        result['feature_cols'] = feature_cols
+    except:
+        result['feature_cols'] = ['open', 'high', 'low', 'close', 'volume',
+                                   'sma_20', 'sma_50', 'rsi_14', 'volatility', 'price_momentum']
     
-    # Load feature columns
-    with open(models_dir / 'feature_columns.txt', 'r') as f:
-        feature_cols = f.read().strip().split('\n')
+    # Load cached metrics if available
+    try:
+        with open(models_dir / 'model_metrics.json', 'r') as f:
+            metrics = json.load(f)
+            result['lr_metrics'] = metrics['lr_metrics']
+            result['lstm_metrics'] = metrics['lstm_metrics']
+            result['metrics_loaded'] = True
+    except:
+        result['metrics_loaded'] = False
     
-    return {
-        'lr_model': lr_model,
-        'lstm_model': lstm_model,
-        'scaler_X': scaler_X,
-        'scaler_y': scaler_y,
-        'feature_cols': feature_cols
-    }
+    # Load Linear Regression (fast)
+    try:
+        lr_model = joblib.load(models_dir / 'linear_regression.joblib')
+        result['lr_model'] = lr_model
+    except Exception as e:
+        st.warning(f"Could not load Linear Regression model: {e}")
+    
+    # Load LSTM model and scalers only if requested (slow due to TensorFlow)
+    if load_lstm and TF_AVAILABLE:
+        try:
+            lstm_model = tf.keras.models.load_model(models_dir / 'lstm_model.keras')
+            scaler_X = joblib.load(models_dir / 'scaler_X.joblib')
+            scaler_y = joblib.load(models_dir / 'scaler_y.joblib')
+            result['lstm_model'] = lstm_model
+            result['scaler_X'] = scaler_X
+            result['scaler_y'] = scaler_y
+        except Exception as e:
+            st.warning(f"Could not load LSTM model: {e}")
+    
+    return result
 
 
 @st.cache_resource
-def train_models(df: pd.DataFrame):
-    """Calculate metrics for both models."""
-    # Try to load pre-trained models first
-    try:
-        models = load_trained_models()
-        feature_cols = models['feature_cols']
-    except Exception as e:
-        st.warning(f"Could not load pre-trained models: {e}. Training new models...")
-        feature_cols = ['open', 'high', 'low', 'close', 'volume',
-                        'sma_20', 'sma_50', 'rsi_14', 'volatility', 'price_momentum']
-        models = {'feature_cols': feature_cols}
+def train_models(_df_hash: str):
+    """Load models and metrics. Calculate metrics only if not cached."""
+    models_dir = Path(__file__).parent.parent / 'models'
+
+    # Always load all models including LSTM for predictions
+    models = load_trained_models(load_lstm=True)
+    feature_cols = models['feature_cols']
+
+    # If metrics are already loaded from cache, we're done
+    if models.get('metrics_loaded', False):
+        return models
+
+    # Metrics not cached - need to calculate them
+    st.info("Calculating metrics for the first time... This will be cached for future runs.")
+    
+    # Load data for metrics calculation
+    raw_df = load_data()
+    df = add_technical_indicators(raw_df)
     
     # Prepare data for metrics calculation
     model_df = df.dropna(subset=feature_cols + ['next_close']).copy()
@@ -205,9 +242,9 @@ def train_models(df: pd.DataFrame):
     
     lr_pred = models['lr_model'].predict(X_test)
     lr_metrics = {
-        'rmse': np.sqrt(mean_squared_error(y_test, lr_pred)),
-        'mae': mean_absolute_error(y_test, lr_pred),
-        'r2': r2_score(y_test, lr_pred)
+        'rmse': float(np.sqrt(mean_squared_error(y_test, lr_pred))),
+        'mae': float(mean_absolute_error(y_test, lr_pred)),
+        'r2': float(r2_score(y_test, lr_pred))
     }
     
     # LSTM predictions
@@ -218,16 +255,26 @@ def train_models(df: pd.DataFrame):
         lstm_pred = models['scaler_y'].inverse_transform(lstm_pred_scaled).flatten()
         
         lstm_metrics = {
-            'rmse': np.sqrt(mean_squared_error(y_test, lstm_pred)),
-            'mae': mean_absolute_error(y_test, lstm_pred),
-            'r2': r2_score(y_test, lstm_pred)
+            'rmse': float(np.sqrt(mean_squared_error(y_test, lstm_pred))),
+            'mae': float(mean_absolute_error(y_test, lstm_pred)),
+            'r2': float(r2_score(y_test, lstm_pred))
         }
     else:
         lstm_metrics = {'rmse': 0, 'mae': 0, 'r2': 0}
     
     models['lr_metrics'] = lr_metrics
     models['lstm_metrics'] = lstm_metrics
-    models['test_idx'] = model_df.index[split_idx:]
+    
+    # Save metrics to cache file for future runs
+    try:
+        metrics_cache = {
+            'lr_metrics': lr_metrics,
+            'lstm_metrics': lstm_metrics
+        }
+        with open(models_dir / 'model_metrics.json', 'w') as f:
+            json.dump(metrics_cache, f, indent=2)
+    except Exception as e:
+        st.warning(f"Could not save metrics cache: {e}")
     
     return models
 
@@ -449,14 +496,21 @@ def main():
     st.markdown('<h1 class="main-header">Stock Price Prediction Dashboard</h1>', unsafe_allow_html=True)
     st.markdown("**CSIS 4260 - Assignment 1** | Interactive visualization of stock price predictions")
 
+    # Load models first (uses cached metrics - very fast)
+    with st.spinner("Loading models..."):
+        models = train_models("static_key")
+
+    # Check if LSTM model is available
+    if 'lstm_model' not in models:
+        if not TF_AVAILABLE:
+            st.warning("TensorFlow is not available. LSTM predictions will use Linear Regression values as fallback.")
+        else:
+            st.warning("LSTM model could not be loaded. LSTM predictions will use Linear Regression values as fallback.")
+
     # Load data
     with st.spinner("Loading data..."):
         raw_df = load_data()
         df = add_technical_indicators(raw_df)
-
-    # Train models
-    with st.spinner("Training models..."):
-        models = train_models(df)
 
     # Sidebar
     st.sidebar.header("Stock Selection")
@@ -563,7 +617,7 @@ def main():
     # Main chart
     st.subheader(f"{selected_ticker} - Price Analysis & Predictions")
     price_chart = create_price_chart(pred_df, selected_ticker)
-    st.plotly_chart(price_chart, use_container_width=True)
+    st.plotly_chart(price_chart, width='stretch', key='price_chart')
 
     # Prediction accuracy
     st.subheader("Prediction Accuracy Analysis")
@@ -585,7 +639,7 @@ def main():
                 title="Prediction Error (Actual - Predicted)"
             )
             fig_lr.update_layout(showlegend=False, height=300)
-            st.plotly_chart(fig_lr, use_container_width=True)
+            st.plotly_chart(fig_lr, width='stretch', key='lr_error_hist')
 
         with col2:
             st.markdown("**LSTM Error Distribution**")
@@ -595,7 +649,7 @@ def main():
                 title="Prediction Error (Actual - Predicted)"
             )
             fig_lstm.update_layout(showlegend=False, height=300)
-            st.plotly_chart(fig_lstm, use_container_width=True)
+            st.plotly_chart(fig_lstm, width='stretch', key='lstm_error_hist')
 
     # Comparison scatter plot
     st.subheader("Actual vs Predicted Prices (All Stocks)")
@@ -613,7 +667,7 @@ def main():
         all_pred_df['lstm_prediction'] = all_pred_df['lr_prediction']
 
     comparison_chart = create_prediction_comparison(all_pred_df)
-    st.plotly_chart(comparison_chart, use_container_width=True)
+    st.plotly_chart(comparison_chart, width='stretch', key='comparison_chart')
 
     # Data table
     st.subheader("Recent Data")
@@ -621,7 +675,7 @@ def main():
                     'sma_20', 'rsi_14', 'lr_prediction', 'lstm_prediction']
     st.dataframe(
         pred_df[display_cols].tail(20).round(2),
-        use_container_width=True
+        width='stretch'
     )
 
     # Footer
