@@ -242,15 +242,15 @@ def predict_for_stock(_df: pd.DataFrame, ticker: str, feature_cols: list, _lr_mo
     return valid_df
 
 
-def create_price_chart(df: pd.DataFrame, ticker: str):
+def create_price_chart(df: pd.DataFrame):
     """Create an interactive price chart with predictions."""
     fig = make_subplots(
         rows=2, cols=1,
         shared_xaxes=True,
-        vertical_spacing=0.08,
+        vertical_spacing=0.12,
         row_heights=[0.65, 0.35],
         subplot_titles=(
-            f'{ticker} - Price & Predictions',
+            None,
             'RSI (14-day)'
         )
     )
@@ -498,7 +498,7 @@ def main():
 
     # Main chart
     st.subheader(f"{selected_ticker} - Price Analysis & Predictions")
-    price_chart = create_price_chart(pred_df, selected_ticker)
+    price_chart = create_price_chart(pred_df)
     st.plotly_chart(price_chart, use_container_width=True, key='price_chart')
 
     # Prediction accuracy
@@ -528,27 +528,6 @@ def main():
     comparison_chart = create_prediction_comparison(all_pred_df)
     st.plotly_chart(comparison_chart, use_container_width=True, key='comparison_chart')
 
-    # Data table
-    st.subheader("Recent Data")
-    display_cols = ['date', 'open', 'high', 'low', 'close', 'volume',
-                    'sma_20', 'rsi_14', 'lr_prediction']
-    st.dataframe(
-        pred_df[display_cols].tail(20).round(2),
-        use_container_width=True
-    )
-
-    # Footer
-    st.markdown("---")
-    st.markdown(
-        """
-        **Technical Indicators:**
-        - **SMA**: Simple Moving Average (20-day & 50-day)
-        - **RSI**: Relative Strength Index (14-day) - Overbought >70, Oversold <30
-
-        **Model:**
-        - **Linear Regression**: Predicts next-day closing price using OHLCV + technical indicators (R² = 0.9992)
-        """
-    )
 
 
 if __name__ == "__main__":
