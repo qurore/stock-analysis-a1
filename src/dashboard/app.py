@@ -134,14 +134,7 @@ def add_technical_indicators(df: pd.DataFrame) -> pd.DataFrame:
 
     df['rsi_14'] = df.groupby('name')['close'].transform(calc_rsi)
 
-    # Volatility
-    df['volatility'] = df.groupby('name')['close'].transform(
-        lambda x: x.rolling(window=20, min_periods=1).std()
-    )
-
     # Price momentum
-    df['price_momentum'] = df['close'] - df['sma_20']
-
     # Daily return
     df['daily_return'] = df.groupby('name')['close'].transform(
         lambda x: x.pct_change() * 100
@@ -167,7 +160,7 @@ def load_trained_models(load_lstm: bool = True):
         result['feature_cols'] = feature_cols
     except:
         result['feature_cols'] = ['open', 'high', 'low', 'close', 'volume',
-                                   'sma_20', 'sma_50', 'rsi_14', 'volatility', 'price_momentum']
+                                   'sma_20', 'sma_50', 'rsi_14']
     
     # Load cached metrics if available
     try:
@@ -306,14 +299,13 @@ def predict_for_stock(df: pd.DataFrame, ticker: str, models: dict) -> pd.DataFra
 def create_price_chart(df: pd.DataFrame, ticker: str):
     """Create an interactive price chart with predictions."""
     fig = make_subplots(
-        rows=3, cols=1,
+        rows=2, cols=1,
         shared_xaxes=True,
-        vertical_spacing=0.05,
-        row_heights=[0.5, 0.25, 0.25],
+        vertical_spacing=0.08,
+        row_heights=[0.65, 0.35],
         subplot_titles=(
             f'{ticker} - Price & Predictions',
-            'RSI (14-day)',
-            'Volatility (20-day)'
+            'RSI (14-day)'
         )
     )
 
@@ -380,20 +372,8 @@ def create_price_chart(df: pd.DataFrame, ticker: str):
     fig.add_hline(y=70, line_dash="dash", line_color="red", row=2, col=1)
     fig.add_hline(y=30, line_dash="dash", line_color="green", row=2, col=1)
 
-    # Volatility
-    fig.add_trace(
-        go.Scatter(
-            x=df['date'], y=df['volatility'],
-            name='Volatility',
-            line=dict(color='#d62728', width=1.5),
-            fill='tozeroy',
-            fillcolor='rgba(214, 39, 40, 0.2)'
-        ),
-        row=3, col=1
-    )
-
     fig.update_layout(
-        height=800,
+        height=600,
         showlegend=True,
         legend=dict(
             orientation="h",
@@ -407,8 +387,7 @@ def create_price_chart(df: pd.DataFrame, ticker: str):
 
     fig.update_yaxes(title_text="Price ($)", row=1, col=1)
     fig.update_yaxes(title_text="RSI", row=2, col=1, range=[0, 100])
-    fig.update_yaxes(title_text="Volatility", row=3, col=1)
-    fig.update_xaxes(title_text="Date", row=3, col=1)
+    fig.update_xaxes(title_text="Date", row=2, col=1)
 
     return fig
 
@@ -580,6 +559,10 @@ def main():
     # Get predictions for selected stock
     pred_df = predict_for_stock(df, selected_ticker, models)
 
+    if len(pred_df) == 0 or 'date' not in pred_df.columns:
+        st.warning(f"No data available for {selected_ticker}. Please select another ticker.")
+        st.stop()
+
     # Filter by date
     pred_df = pred_df[
         (pred_df['date'].dt.date >= start_date) &
@@ -591,7 +574,7 @@ def main():
         st.stop()
 
     # Key metrics
-    col1, col2, col3, col4, col5 = st.columns(5)
+    col1, col2, col3, col4 = st.columns(4)
 
     latest = pred_df.iloc[-1]
 
@@ -620,12 +603,6 @@ def main():
         st.metric(
             label="RSI (14)",
             value=f"{latest['rsi_14']:.1f}"
-        )
-
-    with col5:
-        st.metric(
-            label="Volatility",
-            value=f"${latest['volatility']:.2f}"
         )
 
     # Main chart
@@ -699,7 +676,6 @@ def main():
         **Technical Indicators:**
         - **SMA**: Simple Moving Average (20-day & 50-day)
         - **RSI**: Relative Strength Index (14-day) - Overbought >70, Oversold <30
-        - **Volatility**: 20-day rolling standard deviation of closing prices
 
         **Models:**
         - **Linear Regression**: Baseline model using all features

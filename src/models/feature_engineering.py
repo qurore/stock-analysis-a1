@@ -68,29 +68,6 @@ def calculate_rsi(df: pd.DataFrame, column: str = 'close', period: int = 14) -> 
     return df.groupby('name')[column].transform(rsi_calc)
 
 
-def calculate_volatility(df: pd.DataFrame, column: str = 'close', window: int = 20) -> pd.Series:
-    """
-    Calculate rolling volatility (standard deviation) for each company.
-
-    Parameters:
-    -----------
-    df : pd.DataFrame
-        DataFrame with stock data
-    column : str
-        Column name to calculate volatility on
-    window : int
-        Window size for rolling std
-
-    Returns:
-    --------
-    pd.Series
-        Series containing volatility values
-    """
-    return df.groupby('name')[column].transform(
-        lambda x: x.rolling(window=window, min_periods=1).std()
-    )
-
-
 def calculate_daily_return(df: pd.DataFrame) -> pd.Series:
     """
     Calculate daily return percentage for each company.
@@ -121,9 +98,7 @@ def add_features(df: pd.DataFrame) -> pd.DataFrame:
         - sma_20: 20-day Simple Moving Average
         - sma_50: 50-day Simple Moving Average
         - rsi_14: 14-day Relative Strength Index
-        - volatility: 20-day rolling volatility
         - daily_return: Daily return percentage
-        - price_momentum: Difference between close and SMA 20
         - next_close: Next day's closing price (target variable)
     """
     # Make a copy and ensure proper sorting
@@ -138,9 +113,7 @@ def add_features(df: pd.DataFrame) -> pd.DataFrame:
     df['sma_20'] = calculate_sma(df, 'close', 20)
     df['sma_50'] = calculate_sma(df, 'close', 50)
     df['rsi_14'] = calculate_rsi(df, 'close', 14)
-    df['volatility'] = calculate_volatility(df, 'close', 20)
     df['daily_return'] = calculate_daily_return(df)
-    df['price_momentum'] = df['close'] - df['sma_20']
 
     # Target variable: next day's closing price
     df['next_close'] = df.groupby('name')['close'].shift(-1)
@@ -151,5 +124,5 @@ def add_features(df: pd.DataFrame) -> pd.DataFrame:
 # Feature columns used for modeling
 FEATURE_COLUMNS = [
     'open', 'high', 'low', 'close', 'volume',
-    'sma_20', 'sma_50', 'rsi_14', 'volatility', 'price_momentum'
+    'sma_20', 'sma_50', 'rsi_14'
 ]

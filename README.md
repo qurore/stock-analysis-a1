@@ -116,87 +116,118 @@ Evaluate whether to keep data in CSV format or convert to Parquet format for sto
 
 ### Objective
 1. Compare Pandas vs Polars performance
-2. Enhance dataset with technical indicators
+2. Enhance dataset with technical indicators (SMA, RSI)
 3. Build prediction models for next-day closing price
+
+---
 
 ### Library Comparison: Pandas vs Polars
 
-**Why compare these two?**
-- Pandas: Industry standard, mature ecosystem
-- Polars: Modern alternative with Rust backend, designed for performance
-
-### Performance Results
-
 | Operation | Pandas | Polars | Speedup |
 |-----------|--------|--------|---------|
-| GroupBy Aggregation | 0.0248s | 0.0048s | **5.21x** |
-| Filtering | 0.0062s | 0.0015s | **4.16x** |
-| Sorting | 0.0542s | 0.0140s | **3.87x** |
-| Rolling Mean (20-day) | 0.0756s | 0.0060s | **12.68x** |
-| Add Calculated Column | 0.0054s | 0.0009s | **5.95x** |
-| **Average** | - | - | **6.38x** |
+| GroupBy Aggregation | 0.027s | 0.006s | **4.8x** |
+| Filtering | 0.006s | 0.001s | **4.9x** |
+| Sorting | 0.056s | 0.015s | **3.9x** |
+| Rolling Mean (20-day) | 0.074s | 0.006s | **12.0x** |
+| Add Calculated Column | 0.006s | 0.001s | **7.3x** |
+| **Average** | - | - | **6.6x** |
 
-**Analysis:**
-- Polars is **6.4x faster on average** across all operations
-- Most significant improvement in window/rolling operations (12.68x)
-- Polars uses parallel processing and Rust's memory efficiency
+![Pandas vs Polars Performance](images/part2_performance_compariosn.png)
 
-**Recommendation**: Use **Polars** for production workloads with large datasets. Use Pandas when ecosystem compatibility is required.
+**Key Findings:**
+- Polars is **6.6x faster on average** across all operations
+- **Rolling operations show 12x speedup** due to Polars' parallel processing and Rust backend
+- GroupBy/Filtering also improved by 4-5x
+- Total feature engineering: Pandas 0.59s vs Polars 0.06s (**9.5x faster**)
+
+**Conclusion:** Use **Polars** for large-scale data processing. Use Pandas only when ecosystem compatibility is required.
+
+---
 
 ### Feature Engineering: Technical Indicators
 
-**Indicators Implemented:**
-1. **Simple Moving Average (SMA)** - 20-day and 50-day
-   - Identifies price trends
-   - SMA 20 captures short-term momentum
-   - SMA 50 captures medium-term trend
+**Features Used (8 total):**
+```
+open, high, low, close, volume, sma_20, sma_50, rsi_14
+```
 
-2. **Relative Strength Index (RSI)** - 14-day
-   - Momentum oscillator (0-100 scale)
-   - >70: Overbought condition
-   - <30: Oversold condition
+| Indicator | Description | Purpose |
+|-----------|-------------|---------|
+| SMA 20 | 20-day Moving Average | Short-term trend |
+| SMA 50 | 50-day Moving Average | Medium-term trend |
+| RSI 14 | 14-day Relative Strength Index | Overbought/Oversold detection |
 
-3. **Volatility** - 20-day rolling standard deviation
-   - Measures price variability
-   - Higher values indicate higher risk
+![Technical Indicators Example (NVDA)](images/part2_sma_rsi_example.png)
 
-4. **Price Momentum** - Close price minus SMA 20
-   - Positive: Bullish momentum
-   - Negative: Bearish momentum
+**Observations from NVDA Example:**
+- Stock price increased **~10x** from 2013-2018 ($25 → $240)
+- SMA 20/50 crossovers indicate trend reversals
+- RSI frequently above 70 → sustained bullish momentum
+- RSI drop below 20 in early 2016 marked a temporary correction
+
+---
 
 ### Predictive Models
 
 **Model 1: Linear Regression**
-- Simple, interpretable baseline
-- Fast training (<1 second)
+- Simple, interpretable baseline model
 - Assumes linear relationship between features and target
 
 **Model 2: LSTM (Long Short-Term Memory)**
 - Deep learning model for sequential data
-- Can capture non-linear patterns
-- Architecture: 2 LSTM layers (64, 32 units) + Dense layers
-- Trained with early stopping to prevent overfitting
+- Architecture: LSTM(64) → Dropout → LSTM(32) → Dropout → Dense(16) → Dense(1)
+- Trained with Early Stopping (patience=10)
 
 ### Model Performance (80-20 Train-Test Split)
 
-| Metric | Linear Regression | LSTM |
-|--------|-------------------|------|
-| R² Score | **0.9992** | 0.9970 |
-| RMSE | **$1.33** | $2.49 |
-| MAE | **$0.78** | $1.82 |
-| Training Time | **0.05s** | 41.58s |
+| Metric | Linear Regression | LSTM | Winner |
+|--------|-------------------|------|--------|
+| R² Score | **0.9992** | 0.9963 | LR |
+| RMSE | **$1.33** | $2.76 | LR |
+| MAE | **$0.78** | $1.82 | LR |
+| Training Time | **0.05s** | 41.58s | LR |
 
-**Analysis:**
-- Both models achieve excellent R² scores (>0.99)
-- Linear Regression slightly outperforms LSTM for this dataset
-- The strong predictive power is largely due to stock price autocorrelation (today's price is highly predictive of tomorrow's price)
-- Linear Regression is preferred for its simplicity, interpretability, and faster training
+![LSTM Training History](images/part2_training_loss_mae.png)
 
-**Feature Importance (Linear Regression):**
-1. `close` (current closing price) - Highest coefficient
-2. `price_momentum` - Trend indicator
-3. `sma_20` - Short-term moving average
-4. `high`, `low`, `open` - Daily price range
+**LSTM Training Curve Insights:**
+- Converged early at Epoch 3 (minimum val_loss)
+- Rising validation MAE after Epoch 3 suggests slight overfitting
+- Room for improvement with longer time-series sequences
+
+![Actual vs Predicted Comparison](images/part2_model_pred_performance.png)
+
+**Observations from Scatter Plots:**
+- Linear Regression: Points tightly clustered along the perfect prediction line
+- LSTM: More scatter, especially at higher price ranges ($200+)
+- Both models perform well for typical price ranges ($0-200)
+- LSTM shows larger deviations for high-value stocks
+
+![Feature Importance](images/part2_linreg_importance.png)
+
+**Feature Importance Analysis:**
+- `close`: **85% of total importance** - dominates all other features
+- `open`, `high`, `low`: ~5% each - daily price range contributes marginally
+- `sma_20`, `sma_50`, `rsi_14`, `volume`: **negligible contribution**
+- This confirms stock price autocorrelation: tomorrow's price ≈ today's close
+
+**Key Insights:**
+
+1. **Why Linear Regression outperformed LSTM:**
+   - Strong **autocorrelation** in stock prices (today's price ≈ tomorrow's price)
+   - Linear relationships are sufficient for this prediction task
+   - LSTM complexity became overhead rather than advantage
+
+2. **Caution on interpreting R² > 0.99:**
+   - High R² does not necessarily mean a "good" model
+   - "Tomorrow ≈ Today" is too powerful a baseline
+   - Predicting **price change (returns)** would be more practically useful
+
+3. **Technical indicators (SMA, RSI) provided no value:**
+   - All predictive power comes from current price (`close`)
+   - For next-day prediction, technical indicators are redundant
+   - These may be more useful for longer-term predictions or classification tasks
+
+**Conclusion:** **Linear Regression recommended** for next-day price prediction. Simple, fast, and interpretable. The model essentially learns: `next_close ≈ close`. Consider predicting returns or using multi-day sequences for more meaningful predictions.
 
 ---
 
@@ -223,7 +254,7 @@ Evaluate whether to keep data in CSV format or convert to Parquet format for sto
 
 3. **Interactive Charts**
    - Price chart with predictions overlay
-   - Technical indicators (RSI, Volatility)
+   - Technical indicators (RSI)
    - Actual vs Predicted scatter plots
    - Error distribution histograms
 

@@ -6,5 +6,3 @@ volume
 sma_20
 sma_50
 rsi_14
-volatility
-price_momentum
