@@ -287,6 +287,16 @@ def create_price_chart(df: pd.DataFrame):
         row=1, col=1
     )
 
+    # LightGBM prediction
+    fig.add_trace(
+        go.Scatter(
+            x=df['date'], y=df['lgb_prediction'],
+            name='Predicted (LightGBM)',
+            line=dict(color='#2ca02c', width=1.5, dash='dot')
+        ),
+        row=1, col=1
+    )
+
     # SMA lines
     fig.add_trace(
         go.Scatter(
@@ -342,7 +352,7 @@ def create_price_chart(df: pd.DataFrame):
     return fig
 
 
-def create_prediction_comparison(df: pd.DataFrame):
+def create_prediction_comparison(df: pd.DataFrame, prediction_col: str, model_name: str, color: str):
     """Create a scatter plot comparing predictions vs actual prices."""
     # Sample for performance
     sample_size = min(5000, len(df))
@@ -350,20 +360,20 @@ def create_prediction_comparison(df: pd.DataFrame):
 
     fig = go.Figure()
 
-    # Linear Regression predictions
+    # Model predictions
     fig.add_trace(
         go.Scatter(
             x=sample_df['next_close'],
-            y=sample_df['lr_prediction'],
+            y=sample_df[prediction_col],
             mode='markers',
-            marker=dict(size=4, opacity=0.5, color='#ff7f0e'),
+            marker=dict(size=4, opacity=0.5, color=color),
             name='Predictions'
         )
     )
 
     # Perfect prediction line
-    min_val = min(sample_df['next_close'].min(), sample_df['lr_prediction'].min())
-    max_val = max(sample_df['next_close'].max(), sample_df['lr_prediction'].max())
+    min_val = min(sample_df['next_close'].min(), sample_df[prediction_col].min())
+    max_val = max(sample_df['next_close'].max(), sample_df[prediction_col].max())
 
     fig.add_trace(
         go.Scatter(
@@ -378,6 +388,7 @@ def create_prediction_comparison(df: pd.DataFrame):
     fig.update_layout(
         height=400,
         showlegend=True,
+        title=f"{model_name}",
         xaxis_title="Actual Price ($)",
         yaxis_title="Predicted Price ($)"
     )
@@ -488,7 +499,7 @@ def main():
         st.stop()
 
     # Key metrics
-    col1, col2, col3 = st.columns(3)
+    col1, col2, col3, col4 = st.columns(4)
 
     latest = pred_df.iloc[-1]
 
@@ -501,12 +512,19 @@ def main():
 
     with col2:
         st.metric(
-            label="Predicted (Next Day)",
+            label="LR Predicted",
             value=f"${latest['lr_prediction']:.2f}",
             delta=f"{((latest['lr_prediction'] / latest['close']) - 1) * 100:.2f}%"
         )
 
     with col3:
+        st.metric(
+            label="LightGBM Predicted",
+            value=f"${latest['lgb_prediction']:.2f}",
+            delta=f"{((latest['lgb_prediction'] / latest['close']) - 1) * 100:.2f}%"
+        )
+
+    with col4:
         st.metric(
             label="RSI (14)",
             value=f"{latest['rsi_14']:.1f}"
@@ -524,25 +542,51 @@ def main():
     accuracy_df = pred_df.dropna(subset=['next_close'])
 
     if len(accuracy_df) > 0:
-        prediction_error = accuracy_df['next_close'] - accuracy_df['lr_prediction']
+        error_col1, error_col2 = st.columns(2)
 
-        fig_error = px.histogram(
-            prediction_error,
-            nbins=50,
-            title="Prediction Error Distribution (Actual - Predicted)"
-        )
-        fig_error.update_layout(showlegend=False, height=300)
-        st.plotly_chart(fig_error, use_container_width=True, key='error_hist')
+        with error_col1:
+            lr_error = accuracy_df['next_close'] - accuracy_df['lr_prediction']
+            fig_lr_error = px.histogram(
+                lr_error,
+                nbins=50,
+                title="Linear Regression Error Distribution"
+            )
+            fig_lr_error.update_layout(showlegend=False, height=300)
+            fig_lr_error.update_traces(marker_color='#ff7f0e')
+            st.plotly_chart(fig_lr_error, use_container_width=True, key='lr_error_hist')
+
+        with error_col2:
+            lgb_error = accuracy_df['next_close'] - accuracy_df['lgb_prediction']
+            fig_lgb_error = px.histogram(
+                lgb_error,
+                nbins=50,
+                title="LightGBM Error Distribution"
+            )
+            fig_lgb_error.update_layout(showlegend=False, height=300)
+            fig_lgb_error.update_traces(marker_color='#2ca02c')
+            st.plotly_chart(fig_lgb_error, use_container_width=True, key='lgb_error_hist')
 
     # Comparison scatter plot
     st.subheader("Actual vs Predicted Prices (All Stocks)")
+
     all_pred_df = df.copy()
     all_pred_df = all_pred_df.dropna(subset=models['feature_cols'] + ['next_close'])
     X_all = all_pred_df[models['feature_cols']]
     all_pred_df['lr_prediction'] = models['lr_model'].predict(X_all)
+    if models.get('lgb_model') is not None:
+        all_pred_df['lgb_prediction'] = models['lgb_model'].predict(X_all)
+    else:
+        all_pred_df['lgb_prediction'] = all_pred_df['lr_prediction']
 
-    comparison_chart = create_prediction_comparison(all_pred_df)
-    st.plotly_chart(comparison_chart, use_container_width=True, key='comparison_chart')
+    scatter_col1, scatter_col2 = st.columns(2)
+
+    with scatter_col1:
+        lr_chart = create_prediction_comparison(all_pred_df, 'lr_prediction', 'Linear Regression', '#ff7f0e')
+        st.plotly_chart(lr_chart, use_container_width=True, key='lr_scatter')
+
+    with scatter_col2:
+        lgb_chart = create_prediction_comparison(all_pred_df, 'lgb_prediction', 'LightGBM', '#2ca02c')
+        st.plotly_chart(lgb_chart, use_container_width=True, key='lgb_scatter')
 
 
 
