@@ -138,7 +138,9 @@ def add_technical_indicators(df: pd.DataFrame) -> pd.DataFrame:
 
 @st.cache_resource
 def load_trained_models():
-    """Load pre-trained Linear Regression model from Part 2."""
+    """Load pre-trained Linear Regression and LightGBM models from Part 2."""
+    import lightgbm as lgb
+
     models_dir = Path(__file__).parent.parent / 'models'
 
     result = {}
@@ -152,12 +154,12 @@ def load_trained_models():
         result['feature_cols'] = ['open', 'high', 'low', 'close', 'volume',
                                    'sma_20', 'sma_50', 'rsi_14']
 
-    # Load cached metrics if available (includes LSTM metrics from notebook)
+    # Load cached metrics if available (includes LightGBM metrics from notebook)
     try:
         with open(models_dir / 'model_metrics.json', 'r') as f:
             metrics = json.load(f)
             result['lr_metrics'] = metrics['lr_metrics']
-            result['lstm_metrics'] = metrics['lstm_metrics']
+            result['lgb_metrics'] = metrics['lgb_metrics']
             result['metrics_loaded'] = True
     except Exception:
         result['metrics_loaded'] = False
@@ -169,13 +171,19 @@ def load_trained_models():
     except Exception as e:
         st.warning(f"Could not load Linear Regression model: {e}")
 
+    # Load LightGBM model
+    try:
+        lgb_model = lgb.Booster(model_file=str(models_dir / 'lightgbm_model.txt'))
+        result['lgb_model'] = lgb_model
+    except Exception as e:
+        st.warning(f"Could not load LightGBM model: {e}")
+
     return result
 
 
 @st.cache_resource
 def train_models(_cache_key: str):
-    """Load Linear Regression model and cached metrics only (no TensorFlow/LSTM)."""
-    # Load only Linear Regression (skip LSTM for performance)
+    """Load Linear Regression and LightGBM models with cached metrics."""
     models = load_trained_models()
     feature_cols = models['feature_cols']
 
@@ -183,7 +191,7 @@ def train_models(_cache_key: str):
     if models.get('metrics_loaded', False):
         return models
 
-    # Metrics not cached - calculate LR metrics only
+    # Metrics not cached - calculate metrics
     st.info("Calculating metrics for the first time... This will be cached for future runs.")
 
     # Load data for metrics calculation
@@ -207,23 +215,26 @@ def train_models(_cache_key: str):
         'r2': float(r2_score(y_test, lr_pred))
     }
 
-    # Use pre-computed LSTM metrics from notebook (stored in model_metrics.json)
-    # If not available, use LR metrics as placeholder
-    lstm_metrics = lr_metrics.copy()
+    # Calculate LightGBM metrics if model is available
+    if 'lgb_model' in models:
+        lgb_pred = models['lgb_model'].predict(X_test)
+        lgb_metrics = {
+            'rmse': float(np.sqrt(mean_squared_error(y_test, lgb_pred))),
+            'mae': float(mean_absolute_error(y_test, lgb_pred)),
+            'r2': float(r2_score(y_test, lgb_pred))
+        }
+    else:
+        lgb_metrics = lr_metrics.copy()
 
     models['lr_metrics'] = lr_metrics
-    models['lstm_metrics'] = lstm_metrics
+    models['lgb_metrics'] = lgb_metrics
 
     return models
 
 
 @st.cache_data
-def predict_for_stock(_df: pd.DataFrame, ticker: str, feature_cols: list, _lr_model) -> pd.DataFrame:
-    """Generate predictions for a specific stock using Linear Regression only.
-
-    Note: We use LR only because it's faster and has better performance (R² 0.9992 vs 0.9963).
-    LSTM predictions are shown in the comparison chart only.
-    """
+def predict_for_stock(_df: pd.DataFrame, ticker: str, feature_cols: list, _lr_model, _lgb_model=None) -> pd.DataFrame:
+    """Generate predictions for a specific stock using Linear Regression and LightGBM."""
     stock_df = _df[_df['name'] == ticker].copy()
     valid_df = stock_df.dropna(subset=feature_cols).copy()
 
@@ -232,12 +243,14 @@ def predict_for_stock(_df: pd.DataFrame, ticker: str, feature_cols: list, _lr_mo
 
     X = valid_df[feature_cols]
 
-    # Linear Regression prediction (fast and more accurate)
+    # Linear Regression prediction
     valid_df['lr_prediction'] = _lr_model.predict(X)
 
-    # Use LR prediction as LSTM placeholder for display consistency
-    # Actual LSTM metrics are shown from pre-computed values
-    valid_df['lstm_prediction'] = valid_df['lr_prediction']
+    # LightGBM prediction
+    if _lgb_model is not None:
+        valid_df['lgb_prediction'] = _lgb_model.predict(X)
+    else:
+        valid_df['lgb_prediction'] = valid_df['lr_prediction']
 
     return valid_df
 
@@ -445,17 +458,20 @@ def main():
         lr_m3.metric("MAE", f"${models['lr_metrics']['mae']:.2f}")
 
     with perf_col2:
-        st.markdown("**LSTM**")
-        lstm_m1, lstm_m2, lstm_m3 = st.columns(3)
-        lstm_m1.metric("R²", f"{models['lstm_metrics']['r2']:.4f}")
-        lstm_m2.metric("RMSE", f"${models['lstm_metrics']['rmse']:.2f}")
-        lstm_m3.metric("MAE", f"${models['lstm_metrics']['mae']:.2f}")
+        st.markdown("**LightGBM**")
+        lgb_m1, lgb_m2, lgb_m3 = st.columns(3)
+        lgb_m1.metric("R²", f"{models['lgb_metrics']['r2']:.4f}")
+        lgb_m2.metric("RMSE", f"${models['lgb_metrics']['rmse']:.2f}")
+        lgb_m3.metric("MAE", f"${models['lgb_metrics']['mae']:.2f}")
 
     st.markdown("---")
 
     # Main content
-    # Get predictions for selected stock (uses cached Linear Regression - fast)
-    pred_df = predict_for_stock(df, selected_ticker, models['feature_cols'], models['lr_model'])
+    # Get predictions for selected stock
+    pred_df = predict_for_stock(
+        df, selected_ticker, models['feature_cols'],
+        models['lr_model'], models.get('lgb_model')
+    )
 
     if len(pred_df) == 0 or 'date' not in pred_df.columns:
         st.warning(f"No data available for {selected_ticker}. Please select another ticker.")

@@ -125,11 +125,11 @@ Evaluate whether to keep data in CSV format or convert to Parquet format for sto
 
 | Operation | Pandas | Polars | Speedup |
 |-----------|--------|--------|---------|
-| GroupBy Aggregation | 0.027s | 0.006s | **4.8x** |
-| Filtering | 0.006s | 0.001s | **4.9x** |
-| Sorting | 0.056s | 0.015s | **3.9x** |
-| Rolling Mean (20-day) | 0.074s | 0.006s | **12.0x** |
-| Add Calculated Column | 0.006s | 0.001s | **7.3x** |
+| GroupBy Aggregation | 0.028s | 0.005s | **6.0x** |
+| Filtering | 0.007s | 0.001s | **4.9x** |
+| Sorting | 0.054s | 0.015s | **3.7x** |
+| Rolling Mean (20-day) | 0.076s | 0.006s | **12.0x** |
+| Add Calculated Column | 0.005s | 0.001s | **6.4x** |
 | **Average** | - | - | **6.6x** |
 
 ![Pandas vs Polars Performance](images/part2_performance_compariosn.png)
@@ -137,8 +137,8 @@ Evaluate whether to keep data in CSV format or convert to Parquet format for sto
 **Key Findings:**
 - Polars is **6.6x faster on average** across all operations
 - **Rolling operations show 12x speedup** due to Polars' parallel processing and Rust backend
-- GroupBy/Filtering also improved by 4-5x
-- Total feature engineering: Pandas 0.59s vs Polars 0.06s (**9.5x faster**)
+- GroupBy/Filtering also improved by 5-6x
+- Total feature engineering: Pandas 0.53s vs Polars 0.05s (**10.6x faster**)
 
 **Conclusion:** Use **Polars** for large-scale data processing. Use Pandas only when ecosystem compatibility is required.
 
@@ -173,61 +173,60 @@ open, high, low, close, volume, sma_20, sma_50, rsi_14
 - Simple, interpretable baseline model
 - Assumes linear relationship between features and target
 
-**Model 2: LSTM (Long Short-Term Memory)**
-- Deep learning model for sequential data
-- Architecture: LSTM(64) → Dropout → LSTM(32) → Dropout → Dense(16) → Dense(1)
-- Trained with Early Stopping (patience=10)
+**Model 2: LightGBM (Gradient Boosting)**
+- Gradient boosting decision tree algorithm
+- Parameters: num_leaves=31, learning_rate=0.05, n_estimators=500
+- Early stopping with patience=50
 
 ### Model Performance (80-20 Train-Test Split)
 
-| Metric | Linear Regression | LSTM | Winner |
-|--------|-------------------|------|--------|
-| R² Score | **0.9992** | 0.9963 | LR |
-| RMSE | **$1.33** | $2.76 | LR |
-| MAE | **$0.78** | $1.82 | LR |
-| Training Time | **0.05s** | 41.58s | LR |
-
-![LSTM Training History](images/part2_training_loss_mae.png)
-
-**LSTM Training Curve Insights:**
-- Converged early at Epoch 3 (minimum val_loss)
-- Rising validation MAE after Epoch 3 suggests slight overfitting
-- Room for improvement with longer time-series sequences
+| Metric | Linear Regression | LightGBM | Winner |
+|--------|-------------------|----------|--------|
+| R² Score | **0.9992** | 0.9988 | LR |
+| RMSE | **$1.33** | $1.58 | LR |
+| MAE | **$0.78** | $0.85 | LR |
+| Training Time | **0.04s** | 3.4s | LR |
 
 ![Actual vs Predicted Comparison](images/part2_model_pred_performance.png)
 
 **Observations from Scatter Plots:**
 - Linear Regression: Points tightly clustered along the perfect prediction line
-- LSTM: More scatter, especially at higher price ranges ($200+)
-- Both models perform well for typical price ranges ($0-200)
-- LSTM shows larger deviations for high-value stocks
+- LightGBM: Slightly more scatter than Linear Regression
+- Both models perform well across all price ranges, but LR is marginally better
 
-![Feature Importance](images/part2_linreg_importance.png)
+![Feature Importance - Linear Regression](images/part2_linreg_importance.png)
 
-**Feature Importance Analysis:**
+**Linear Regression Feature Importance:**
 - `close`: **85% of total importance** - dominates all other features
 - `open`, `high`, `low`: ~5% each - daily price range contributes marginally
 - `sma_20`, `sma_50`, `rsi_14`, `volume`: **negligible contribution**
+
+![Feature Importance - LightGBM](images/part2_lightgbm_importance.png)
+
+**LightGBM Feature Importance Analysis:**
+- **By Gain**: `close` dominates with highest information gain
+- **By Split**: `rsi_14` and `volume` have most splits (model explores these features)
+- Interesting contrast: high split count ≠ high predictive value
 - This confirms stock price autocorrelation: tomorrow's price ≈ today's close
 
 **Key Insights:**
 
-1. **Why Linear Regression outperformed LSTM:**
+1. **Linear Regression outperforms LightGBM:**
    - Strong **autocorrelation** in stock prices (today's price ≈ tomorrow's price)
    - Linear relationships are sufficient for this prediction task
-   - LSTM complexity became overhead rather than advantage
+   - LightGBM's complexity provides no advantage; in fact, LR is slightly better (R² 0.9992 vs 0.9988)
 
 2. **Caution on interpreting R² > 0.99:**
    - High R² does not necessarily mean a "good" model
    - "Tomorrow ≈ Today" is too powerful a baseline
    - Predicting **price change (returns)** would be more practically useful
 
-3. **Technical indicators (SMA, RSI) provided no value:**
+3. **Technical indicators (SMA, RSI) provided limited value:**
    - All predictive power comes from current price (`close`)
-   - For next-day prediction, technical indicators are redundant
+   - For next-day prediction, technical indicators are mostly redundant
    - These may be more useful for longer-term predictions or classification tasks
 
-**Conclusion:** **Linear Regression recommended** for next-day price prediction. Simple, fast, and interpretable. The model essentially learns: `next_close ≈ close`. Consider predicting returns or using multi-day sequences for more meaningful predictions.
+**Conclusion:** **Linear Regression recommended** for next-day price prediction. Simple, fast, and interpretable. The model essentially learns: `next_close ≈ close`. LightGBM provides no meaningful improvement for this task. Consider predicting returns or using multi-day sequences for more meaningful predictions.
 
 ---
 
@@ -300,7 +299,7 @@ Key libraries used:
 - **polars** (0.20+): High-performance data processing
 - **pyarrow** (14.0+): Parquet file support
 - **scikit-learn** (1.3+): Machine learning models
-- **tensorflow** (2.15+): LSTM deep learning model
+- **lightgbm** (4.0+): Gradient boosting model
 - **streamlit** (1.29+): Interactive dashboard
 - **plotly** (5.18+): Interactive visualizations
 - **matplotlib** (3.7+): Static plots in notebooks
