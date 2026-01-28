@@ -232,34 +232,39 @@ open, high, low, close, volume, sma_20, sma_50, rsi_14
 
 ## Part 3: Interactive Dashboard
 
-### Technology Choice: Streamlit
+### Technology: Streamlit + Plotly
 
-**Why Streamlit?**
-- Python-native: No JavaScript/HTML required
-- Rapid prototyping: Build interactive apps in minutes
-- Built-in widgets: Dropdowns, sliders, date pickers
-- Plotly integration: Interactive, professional charts
-- Easy deployment: Streamlit Cloud or self-hosted
+### Dashboard Sections
 
-### Dashboard Features
+![Dashboard Overview](images/part3_overview.png)
 
-1. **Stock Selection Panel**
-   - Search by ticker symbol
-   - Dropdown with all 505 companies
-   - Date range filter
+#### 1. Filter Section
+- **Search Ticker**: String search to filter 505 companies
+- **Select Ticker Code**: Dropdown selection
+- **Date Range**: Filter data by date range
 
-2. **Model Performance Metrics**
-   - R², RMSE, MAE for both models
+#### 2. Metrics Section
 
-3. **Interactive Charts**
-   - Price chart with predictions overlay
-   - Technical indicators (RSI)
-   - Actual vs Predicted scatter plots
-   - Error distribution histograms
+**Model Performance (Global)**
+| Model | R² | RMSE | MAE |
+|-------|-----|------|-----|
+| Linear Regression | 0.9992 | $1.33 | $0.78 |
+| LightGBM | 0.9988 | $1.58 | $0.85 |
 
-4. **Data Table**
-   - Recent 20 rows of selected stock
-   - Shows predictions alongside actual prices
+**Stock Metrics (Selected Ticker)**
+- Latest Close Price (with daily return %)
+- LR Predicted Price (with change %)
+- LightGBM Predicted Price (with change %)
+- RSI (14-day)
+
+#### 3. Time Series Section
+- **Price Chart**: Actual close, LR prediction, LightGBM prediction
+- **Technical Indicators**: SMA 20, SMA 50
+- **RSI Chart**: 14-day RSI with overbought/oversold lines (70/30)
+
+#### 4. Model Performance Section
+- **Error Distribution**: Side-by-side histograms for LR and LightGBM
+- **Actual vs Predicted**: Scatter plots comparing model fit (all stocks)
 
 ### Running the Dashboard
 ```bash
@@ -273,21 +278,23 @@ Access at: http://localhost:8501
 
 ```
 stock-analysis-a1/
-├── data/                           # Data files
-│   └── all_stocks_5yr.csv
+├── data/
+│   └── all_stocks_5yr.csv          # Raw dataset
 ├── notebooks/
-│   ├── part1_storage_benchmarking.ipynb   # Storage format benchmarks
-│   └── part2_analysis_modeling.ipynb      # Analysis and ML models
+│   ├── part1_storage_benchmarking.ipynb
+│   └── part2_analysis_modeling.ipynb
 ├── src/
 │   ├── models/
-│   │   ├── __init__.py
-│   │   ├── feature_engineering.py         # Technical indicators
-│   │   ├── linear_regression_model.py     # LR model class
-│   │   └── random_forest_model.py         # RF model class
+│   │   ├── linear_regression.joblib      # Trained LR model
+│   │   ├── lightgbm_model.txt            # Trained LightGBM model
+│   │   ├── model_metrics.json            # Cached metrics
+│   │   └── feature_columns.txt           # Feature list
 │   └── dashboard/
-│       └── app.py                         # Streamlit dashboard
-├── requirements.txt                # Python dependencies
-└── README.md                       # This file
+│       └── app.py                        # Streamlit dashboard
+├── .streamlit/
+│   └── config.toml                       # Streamlit theme config
+├── requirements.txt
+└── README.md
 ```
 
 ---
@@ -308,9 +315,5 @@ Key libraries used:
 
 ## Author
 
-CSIS 4260 - Data Management and Visualization
-Douglas College
-
-## License
-
-This project is for educational purposes only.
+Ryosuke Shiroshita (300387363)
+shiroshitar@student.douglascollege.ca

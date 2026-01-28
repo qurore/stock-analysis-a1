@@ -29,44 +29,92 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# Custom CSS - Dark Theme
+# Custom CSS - Light Theme
 st.markdown("""
 <style>
     .main-header {
         font-size: 2.5rem;
         font-weight: bold;
-        color: #4da6ff;
+        color: #1f77b4;
         text-align: center;
         margin-bottom: 2rem;
     }
     .metric-card {
-        background-color: #1e1e1e;
+        background-color: #f8f9fa;
         border-radius: 10px;
         padding: 1rem;
         text-align: center;
     }
     [data-testid="stMetric"] {
-        background-color: #262730;
+        background-color: #f8f9fa;
         padding: 15px;
         border-radius: 10px;
-        border: 1px solid #3d3d3d;
+        border: 1px solid #e0e0e0;
         min-height: 140px;
         display: flex;
         flex-direction: column;
         justify-content: center;
     }
     [data-testid="stMetricLabel"] {
-        color: #fafafa;
+        color: #333333;
     }
     [data-testid="stMetricValue"] {
-        color: #ffffff;
+        color: #1f1f1f;
     }
     [data-testid="stHorizontalBlock"] > div {
         flex: 1;
         min-width: 0;
     }
     .stApp {
-        background-color: #0e1117;
+        background-color: #ffffff;
+    }
+    .stMarkdown, .stText, h1, h2, h3, p {
+        color: #333333;
+    }
+    /* Input widgets styling */
+    .stTextInput > div > div > input {
+        background-color: #ffffff;
+        color: #333333;
+        border: 1px solid #e0e0e0;
+    }
+    .stSelectbox > div > div {
+        background-color: #ffffff;
+        color: #333333;
+    }
+    .stSelectbox > div > div > div {
+        background-color: #ffffff;
+        color: #333333;
+    }
+    .stDateInput > div > div > input {
+        background-color: #ffffff;
+        color: #333333;
+        border: 1px solid #e0e0e0;
+    }
+    [data-baseweb="select"] {
+        background-color: #ffffff;
+    }
+    [data-baseweb="input"] {
+        background-color: #ffffff;
+    }
+    [data-baseweb="base-input"] {
+        background-color: #ffffff;
+        color: #333333;
+    }
+    div[data-baseweb="select"] > div {
+        background-color: #ffffff;
+        border-color: #e0e0e0;
+    }
+    div[data-baseweb="input"] > div {
+        background-color: #ffffff;
+        border-color: #e0e0e0;
+    }
+    input {
+        background-color: #ffffff !important;
+        color: #333333 !important;
+    }
+    .stDateInput input {
+        background-color: #ffffff !important;
+        color: #333333 !important;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -340,14 +388,28 @@ def create_price_chart(df: pd.DataFrame):
             yanchor="bottom",
             y=1.02,
             xanchor="center",
-            x=0.5
+            x=0.5,
+            font=dict(color='#333333')
         ),
-        hovermode='x unified'
+        hovermode='x unified',
+        template='plotly_white',
+        paper_bgcolor='white',
+        plot_bgcolor='white',
+        font=dict(color='#333333'),
+        title_font=dict(color='#333333')
     )
 
-    fig.update_yaxes(title_text="Price ($)", row=1, col=1)
-    fig.update_yaxes(title_text="RSI", row=2, col=1, range=[0, 100])
-    fig.update_xaxes(title_text="Date", row=2, col=1)
+    fig.update_yaxes(title_text="Price ($)", row=1, col=1, gridcolor='#e0e0e0',
+                     tickfont=dict(color='#333333'), title_font=dict(color='#333333'))
+    fig.update_yaxes(title_text="RSI", row=2, col=1, range=[0, 100], gridcolor='#e0e0e0',
+                     tickfont=dict(color='#333333'), title_font=dict(color='#333333'))
+    fig.update_xaxes(title_text="Date", row=2, col=1, gridcolor='#e0e0e0',
+                     tickfont=dict(color='#333333'), title_font=dict(color='#333333'))
+    fig.update_xaxes(row=1, col=1, gridcolor='#e0e0e0', tickfont=dict(color='#333333'))
+
+    # Update subplot titles color
+    for annotation in fig['layout']['annotations']:
+        annotation['font'] = dict(color='#333333')
 
     return fig
 
@@ -388,10 +450,18 @@ def create_prediction_comparison(df: pd.DataFrame, prediction_col: str, model_na
     fig.update_layout(
         height=400,
         showlegend=True,
-        title=f"{model_name}",
+        title=dict(text=model_name, font=dict(color='#333333')),
         xaxis_title="Actual Price ($)",
-        yaxis_title="Predicted Price ($)"
+        yaxis_title="Predicted Price ($)",
+        template='plotly_white',
+        paper_bgcolor='white',
+        plot_bgcolor='white',
+        font=dict(color='#333333'),
+        legend=dict(font=dict(color='#333333'))
     )
+
+    fig.update_xaxes(gridcolor='#e0e0e0', tickfont=dict(color='#333333'), title_font=dict(color='#333333'))
+    fig.update_yaxes(gridcolor='#e0e0e0', tickfont=dict(color='#333333'), title_font=dict(color='#333333'))
 
     return fig
 
@@ -551,8 +621,18 @@ def main():
                 nbins=50,
                 title="Linear Regression Error Distribution"
             )
-            fig_lr_error.update_layout(showlegend=False, height=300)
+            fig_lr_error.update_layout(
+                showlegend=False,
+                height=300,
+                template='plotly_white',
+                paper_bgcolor='white',
+                plot_bgcolor='white',
+                font=dict(color='#333333'),
+                title_font=dict(color='#333333')
+            )
             fig_lr_error.update_traces(marker_color='#ff7f0e')
+            fig_lr_error.update_xaxes(gridcolor='#e0e0e0', tickfont=dict(color='#333333'), title_font=dict(color='#333333'))
+            fig_lr_error.update_yaxes(gridcolor='#e0e0e0', tickfont=dict(color='#333333'), title_font=dict(color='#333333'))
             st.plotly_chart(fig_lr_error, use_container_width=True, key='lr_error_hist')
 
         with error_col2:
@@ -562,8 +642,18 @@ def main():
                 nbins=50,
                 title="LightGBM Error Distribution"
             )
-            fig_lgb_error.update_layout(showlegend=False, height=300)
+            fig_lgb_error.update_layout(
+                showlegend=False,
+                height=300,
+                template='plotly_white',
+                paper_bgcolor='white',
+                plot_bgcolor='white',
+                font=dict(color='#333333'),
+                title_font=dict(color='#333333')
+            )
             fig_lgb_error.update_traces(marker_color='#2ca02c')
+            fig_lgb_error.update_xaxes(gridcolor='#e0e0e0', tickfont=dict(color='#333333'), title_font=dict(color='#333333'))
+            fig_lgb_error.update_yaxes(gridcolor='#e0e0e0', tickfont=dict(color='#333333'), title_font=dict(color='#333333'))
             st.plotly_chart(fig_lgb_error, use_container_width=True, key='lgb_error_hist')
 
     # Comparison scatter plot
